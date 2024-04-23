@@ -27,7 +27,7 @@ os.environ["WANDB_AGENT_MAX_INITIAL_FAILURES"]= "200"
 np.random.seed(0)
 torch.manual_seed(0)
 
-def parse_method(args, data):
+def parse_method(args, datta):
     #     Currently we don't set hyperparameters w.r.t. different dataset
     if args.method == 'AllSetTransformer':
         if args.LearnMask:
@@ -305,7 +305,7 @@ if __name__ == '__main__':
     parser.add_argument('--UniGNN_use-norm', action="store_true", help='use norm in the final layer')
     parser.add_argument('--UniGNN_degV', default = 0)
     parser.add_argument('--UniGNN_degE', default = 0)
-    parser.add_argument('--wandb', default=True, type=str2bool)
+    parser.add_argument('--wandb', default=False, type=str2bool)
     parser.add_argument('--activation', default='relu', choices=['Id','relu', 'prelu'])
     
     # # Args just for EDGNN
@@ -344,7 +344,8 @@ if __name__ == '__main__':
     # # Part 1: Load data
     if args.wandb:
         import wandb
-        wandb.init(sync_tensorboard=False, project='hyper_sheaf', reinit = False, config = args, entity='hyper_graphs', tags=[args.tag])
+        #wandb.init(sync_tensorboard=False, project='hyper_sheaf', reinit = False, config = args, entity='hyper_graphs', tags=[args.tag])
+        wandb.init(sync_tensorboard=True, project='hyper_sheaf', reinit = True, config = args, entity='hyper_graphs', tags=[args.tag])
         print('Monitoring using wandb')
     
     ### Load and preprocess data ###

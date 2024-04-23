@@ -57,7 +57,10 @@ class dataset_Hypergraph(InMemoryDataset):
         self.feature_noise = feature_noise
         self._train_percent = train_percent
 
-        
+        print ("p2raw value is: ", p2raw)
+        print ("Current working directory is: ", os.getcwd())
+
+
         if (p2raw is not None) and osp.isdir(p2raw):
             self.p2raw = p2raw
         elif p2raw is None:
