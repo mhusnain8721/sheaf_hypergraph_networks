@@ -13,7 +13,7 @@ from torch_geometric.data import InMemoryDataset
 from load_other_datasets import * 
 
 
-def save_data_to_pickle(data, p2root = '../data/', file_name = None):
+def save_data_to_pickle(data, p2root = './data/', file_name = None):
     '''
     if file name not specified, use time stamp.
     '''
@@ -33,7 +33,7 @@ def save_data_to_pickle(data, p2root = '../data/', file_name = None):
 
 
 class dataset_Hypergraph(InMemoryDataset):
-    def __init__(self, root = '../data/pyg_data/hypergraph_dataset_updated/', name = None, 
+    def __init__(self, root = './data/pyg_data/hypergraph_dataset_updated/', name = None, 
                  p2raw = None,
                  train_percent = 0.01,
                  feature_noise=0.1,
@@ -171,11 +171,11 @@ class dataset_Hypergraph(InMemoryDataset):
 
 if __name__ == '__main__':
 
-    p2root = '../data/pyg_data/hypergraph_dataset_updated/'
-    p2raw = '../data/AllSet_all_raw_data/'
+    p2root = './data/pyg_data/hypergraph_dataset_updated/'
+    p2raw = './data/AllSet_all_raw_data/'
 
-    p2root = '../data/pyg_data/hypergraph_dataset_updated/'
-    p2raw = '../data/AllSet_all_raw_data/coauthorship/'
+    p2root = './data/pyg_data/hypergraph_dataset_updated/'
+    p2raw = './data/AllSet_all_raw_data/coauthorship/'
     for f in ['coauthor_cora', 'coauthor_dblp']:
             dd = dataset_Hypergraph(root = p2root, 
                     name = f,
@@ -184,8 +184,8 @@ if __name__ == '__main__':
             assert dd.data.num_nodes in dd.data.edge_index[0]
             print(dd, dd.data)
 
-    p2root = '../data/pyg_data/hypergraph_dataset_updated/'
-    p2raw = '../data/AllSet_all_raw_data/cocitation/'
+    p2root = './data/pyg_data/hypergraph_dataset_updated/'
+    p2raw = './data/AllSet_all_raw_data/cocitation/'
     for f in ['cora', 'citeseer', 'pubmed']:
             dd = dataset_Hypergraph(root = p2root, 
                     name = f,

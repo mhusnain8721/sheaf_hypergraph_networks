@@ -365,18 +365,18 @@ if __name__ == '__main__':
         dname = args.dname
         f_noise = args.feature_noise
         if (f_noise is not None) and dname in synthetic_list:
-            p2raw = '../data/AllSet_all_raw_data/'
+            p2raw = './data/AllSet_all_raw_data/'
             dataset = dataset_Hypergraph(name=dname, 
                     feature_noise=f_noise,
                     p2raw = p2raw)
         else:
             if dname in ['cora', 'citeseer','pubmed']:
-                p2raw = '../data/AllSet_all_raw_data/cocitation/'
+                p2raw = './data/AllSet_all_raw_data/cocitation/'
             elif dname in ['coauthor_cora', 'coauthor_dblp']:
-                p2raw = '../data/AllSet_all_raw_data/coauthorship/'
+                p2raw = './data/AllSet_all_raw_data/coauthorship/'
             else:
-                p2raw = '../data/AllSet_all_raw_data/'
-            dataset = dataset_Hypergraph(name=dname,root = '../data/pyg_data/hypergraph_dataset_updated/',
+                p2raw = './data/AllSet_all_raw_data/'
+            dataset = dataset_Hypergraph(name=dname,root = './data/pyg_data/hypergraph_dataset_updated/',
                                          p2raw = p2raw)
         data = dataset.data
         args.num_features = dataset.num_features
