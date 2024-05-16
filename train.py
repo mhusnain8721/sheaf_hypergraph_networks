@@ -433,6 +433,7 @@ if __name__ == '__main__':
             data = Add_Self_Loops(data)
     #    Make the first he_id to be 0
         data.edge_index[1] -= data.edge_index[1].min()
+        #print("data x shape ", data.x.shape) #citeseer 3327, 3703
 
     
     #     Get splits
@@ -494,7 +495,10 @@ if __name__ == '__main__':
             model.train()
             optimizer.zero_grad()
             out = model(data)
+            #print ("data shape is: ", data.x.shape)
+            #print("out shape: ", out.shape)
             out = F.log_softmax(out, dim=1)
+            #print("out shape after log_softmax: ", out[train_idx])
             loss = criterion(out[train_idx], data.y[train_idx])
  
             loss.backward()

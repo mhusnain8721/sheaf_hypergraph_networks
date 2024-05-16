@@ -177,8 +177,12 @@ class HyperDiffusionDiagSheafConv(MessagePassing):
             # compute D^(-1/2) @ X
             x = D_inv.unsqueeze(-1) * x
 
+        #print('x', x.shape)
+        #print('alpha', alpha.shape) 
+        #print('hyperedge_index', hyperedge_index.shape)
         H = torch.sparse.FloatTensor(hyperedge_index, alpha, size=(num_nodes*self.d, num_edges*self.d))
         H_t = torch.sparse.FloatTensor(hyperedge_index.flip([0]), alpha, size=(num_edges*self.d, num_nodes*self.d))
+        #print('H', H.shape)
 
         #this is because spdiags does not support gpu
         B_inv =  utils.sparse_diagonal(B_inv, shape = (num_edges*self.d, num_edges*self.d))

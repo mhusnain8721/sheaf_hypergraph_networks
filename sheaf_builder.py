@@ -68,6 +68,15 @@ def predict_blocks_var3(x, hyperedge_index, sheaf_lin, sheaf_lin2, args):
 
 def predict_blocks_cp_decomp(x, hyperedge_index, cp_W, cp_V, sheaf_lin, args):
     row, col = hyperedge_index
+    #create a static integer variable to print things only once
+    if not hasattr(predict_blocks_cp_decomp, 'count'):  # Check if 'count' attribute exists
+        predict_blocks_cp_decomp.count = 0  # Initialize it if not
+    predict_blocks_cp_decomp.count += 1  # Increment the 'count' attribute
+    if(predict_blocks_cp_decomp.count <= 1):
+        print ("hyperedge index is:",hyperedge_index.shape)
+        print ("row shape is:",row.shape)
+        print ("col shape is: ",col.shape)
+
     xs = torch.index_select(x, dim=0, index=row)
 
     xs_ones = torch.cat((xs, torch.ones(xs.shape[0],1).to(xs.device)), dim=-1) #nnz x f+1
@@ -84,6 +93,7 @@ def predict_blocks_cp_decomp(x, hyperedge_index, cp_W, cp_V, sheaf_lin, args):
         h_sheaf = F.sigmoid(h_sheaf) # output d numbers for every entry in the incidence matrix
     elif args.sheaf_act == 'tanh':
         h_sheaf = F.tanh(h_sheaf) # output d numbers for every entry in the incidence matrix
+    #print ("Shape of the sheaf",h_sheaf.shape)
     return h_sheaf
 
 #One class for each type of sheaf. We will need to merge them.
@@ -159,10 +169,17 @@ class SheafBuilderDiag(nn.Module):
         -> (reshape) (Nd x Ed) with NxE diagonal blocks of dimension dxd
 
         """
-        num_nodes = x.shape[0] // self.d
+        num_nodes = x.shape[0] // self.d # num_nodes = hyperedge_index[0].max().item() + 1
         num_edges = hyperedge_index[1].max().item() + 1
+        #print("shape of e",num_edges)
+        #print("shape of hyperedge_index",hyperedge_index.shape)
+
+
         x = x.view(num_nodes, self.d, x.shape[-1]).mean(1) # N x d x f -> N x f
+        
         e = e.view(num_edges, self.d, e.shape[-1]).mean(1) # # x d x f -> E x f
+        #print("shape of e",e.shape)
+
 
         #predict (_ x d) elements
         if self.prediction_type == 'MLP_var1':
@@ -183,6 +200,7 @@ class SheafBuilderDiag(nn.Module):
             h_sheaf = h_sheaf * torch.tensor(new_head_mask, device=x.device) + torch.tensor(new_head, device=x.device)
         
         self.h_sheaf = h_sheaf #this is stored in self for testing purpose
+        #print ("Shape of the sheaf",h_sheaf.shape)
         h_sheaf_attributes = h_sheaf.reshape(-1) #(d*K)
 
         # from a d-dim tensor assoc to every entrence in edge_index
@@ -200,6 +218,19 @@ class SheafBuilderDiag(nn.Module):
         h_sheaf_index = hyperedge_index
 
         #the resulting (index, values) pair correspond to the diagonal of each block sub-matrix
+        #create a static integer variable
+        # if not hasattr(SheafBuilderDiag, 'count'):  # Check if 'count' attribute exists
+        #     SheafBuilderDiag.count = 0  # Initialize it if no
+
+        # if SheafBuilderDiag.count <= 1:
+            
+        #     print("shape of hyperedge_index",hyperedge_index.shape)
+        #     print("_________________________________________________")
+        #     print ("Shape of the sheaf index",h_sheaf_index.shape)
+        #     print ("Shape of the sheaf attributes",h_sheaf_attributes.shape)
+        #     print ("Top 20 elements of the sheaf index",h_sheaf_index[:,:20])
+        #     print ("Top 20 elements of the sheaf attributes",h_sheaf_attributes[:20])
+        #     SheafBuilderDiag.count += 1
         return h_sheaf_index, h_sheaf_attributes
         
     

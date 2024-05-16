@@ -35,8 +35,6 @@ class SheafHyperGNN(nn.Module):
         This is a Hypergraph Sheaf Model with 
         the dxd blocks in H_BIG associated to each pair (node, hyperedge)
         being **diagonal**
-
-
     """
     def __init__(self, args, sheaf_type):
         super(SheafHyperGNN, self).__init__()
@@ -128,6 +126,8 @@ class SheafHyperGNN(nn.Module):
         edge_index = data.edge_index
         num_nodes = data.x.shape[0] #data.edge_index[0].max().item() + 1
         num_edges = data.edge_index[1].max().item() + 1
+        #print("number of nodes",num_nodes)
+        #print("number of edges",data.edge_index[1].max().item() + 1)
 
         #if we are at the first epoch, initialise the attribute, otherwise use the previous ones
         if self.hyperedge_attr is None:
@@ -145,6 +145,12 @@ class SheafHyperGNN(nn.Module):
             # infer the sheaf as a sparse incidence matrix Nd x Ed, with each block being diagonal
             if i == 0 or self.dynamic_sheaf:
                 h_sheaf_index, h_sheaf_attributes = self.sheaf_builder[i](x, hyperedge_attr, edge_index)
+            
+            # print("h_sheaf_index", h_sheaf_index.shape)
+            # print("h_sheaf_attributes", h_sheaf_attributes.shape)
+            # print("num_nodes", num_nodes)
+            # print("num_edges", num_edges)
+
             # Sheaf Laplacian Diffusion
             x = F.elu(conv(x, hyperedge_index=h_sheaf_index, alpha=h_sheaf_attributes, num_nodes=num_nodes, num_edges=num_edges))
             x = F.dropout(x, p=self.dropout, training=self.training)
