@@ -188,15 +188,19 @@ class HyperDiffusionDiagSheafConv(MessagePassing):
         B_inv =  utils.sparse_diagonal(B_inv, shape = (num_edges*self.d, num_edges*self.d))
         D_inv = utils.sparse_diagonal(D_inv, shape = (num_nodes*self.d, num_nodes*self.d))
 
+        #handle repeated indices if any
         B_inv = B_inv.coalesce()
         H_t = H_t.coalesce()
         H = H.coalesce()
         D_inv = D_inv.coalesce()
 
-        minus_L = torch_sparse.spspmm(B_inv.indices(), B_inv.values(), H_t.indices(), H_t.values(), B_inv.shape[0],B_inv.shape[1], H_t.shape[1])
-        minus_L = torch_sparse.spspmm(H.indices(), H.values(), minus_L[0], minus_L[1], H.shape[0],H.shape[1], H_t.shape[1])
+        minus_L = torch_sparse.spspmm(B_inv.indices(), B_inv.values(), H_t.indices(), H_t.values(), B_inv.shape[0],B_inv.shape[1], H_t.shape[1]) #ed x nd
+        minus_L = torch_sparse.spspmm(H.indices(), H.values(), minus_L[0], minus_L[1], H.shape[0],H.shape[1], H_t.shape[1]) #nd x nd
         minus_L = torch_sparse.spspmm(D_inv.indices(), D_inv.values(), minus_L[0], minus_L[1], D_inv.shape[0],D_inv.shape[1], H_t.shape[1])
         minus_L = torch.sparse_coo_tensor(minus_L[0], minus_L[1], size=(num_nodes*self.d, num_nodes*self.d)).to(self.device)
+
+        #Multiply attention Matrix here
+        #print('minus_L', minus_L.shape)
 
         #negate the diagonal blocks and add eye matrix
         if self.I_mask is None: #prepare these in advance
@@ -1080,3 +1084,245 @@ class HalfNLHconv(MessagePassing):
             raise ValeuError("aggr was not passed!")
         return scatter(inputs, index, dim=self.node_dim, reduce=aggr)
 
+
+########################################## My updates starts from here#############################################
+
+### Attention layer ###
+
+class AttentionLayer(nn.Module):
+    def __init__(self, f, d):
+        super(AttentionLayer, self).__init__()
+        self.input_dim = f #Number of feateres per node serving as number of channels in Nd x f
+        self.d = d
+        self.W = nn.Parameter(torch.Tensor(f, f))
+        self.a = nn.Parameter(torch.Tensor(2 * f))
+
+        # Initialize parameters
+        nn.init.xavier_uniform_(self.W.data, gain=1.414)
+        nn.init.uniform_(self.a.data, -1, 1)  # Initialize self.a with a uniform distribution
+        # Attribute to store the attention matrix
+        self.attention_matrix = None
+
+    def forward(self, Cdevice, N, x):
+        """
+        Calculate the NxN attention matrix A using the attention mechanism described in the paper.
+
+        Parameters:
+        N (int): Total number of nodes in the hypergraph.
+        x (torch.Tensor): Node feature matrix of size Nd x f.
+
+        Returns:
+        torch.Tensor: NxN attention matrix.
+        """
+
+        #  # Initialize attention matrix with random values and normalize
+        # attention_matrix = torch.rand(N, N)
+        # # Normalize the attention scores using softmax
+        # attention_matrix = F.softmax(attention_matrix, dim=1)
+        
+        # return attention_matrix
+        #if self.attention_matrix is None:
+
+        d = self.d  # Dimension of each node's feature vector
+        f = x.shape[1]  # Number of features per node after projection (number of channels in Nd x f) e.g., 256
+
+        #print('f ', f)
+        #print('N ', N)
+        #import pdb; pdb.set_trace()
+        # Reshape x to (N, d, f)
+        x = x.view(N, d, f).to(Cdevice)
+        self.W = self.W.to(Cdevice)
+        a= self.a
+        a= a.to(Cdevice)
+
+        
+        # Apply the weight matrix W to the features
+        Wx = torch.matmul(x, self.W).to(Cdevice) # Shape (N, d, f)
+        
+        # Compute the attention scores
+        attention_scores = torch.zeros(N, N).to(Cdevice)
+        #import pdb; pdb.set_trace()
+        for i in range(N):
+            for j in range(N):
+                if i != j:
+                    with torch.no_grad():
+                        concatenated = torch.cat((Wx[i], Wx[j]), dim=-1).to(Cdevice) # Concatenate shape (dx2f) 
+                        #`print ('concatinated shape', concatenated.shape)
+                        # e_ij = []
+                        # for i in range(d):
+                        #     row = concatenated[i]  # This will be of shape (2F,)
+                        #     e_ij.append(F.leaky_relu(torch.dot(self.a, row))) # at the end e_ij will be shape shape (d,)
+
+                        # Calculate e_ij using efficient tensor operations
+                        e_ij = F.leaky_relu(torch.einsum('df,f->d', concatenated, a))  # e_ij shape: (d,)
+                        # Sum over the d dimension and assign to the attention_scores tensor
+                        attention_scores[i, j] = e_ij.sum()
+                                    # Delete tensors to free up memory
+                        del concatenated
+                        del e_ij
+                        # Force garbage collection to deallocate memory
+                        torch.cuda.empty_cache()
+
+            
+        # Normalize the attention scores using softmax
+        #import pdb; pdb.set_trace()
+        # Apply ReLU to ensure all values are non-negative
+        attention_scores = F.relu(attention_scores)
+        # Normalize each row by dividing by the row sum
+        row_sums = attention_scores.sum(dim=1, keepdim=True)
+        self.attention_matrix = attention_scores / row_sums
+        
+        #attention_matrix = F.softmax(attention_scores, dim=1)
+        #attention_matrix = torch.distributions.dirichlet.Dirichlet(torch.ones(N)).sample([N])
+        return self. attention_matrix
+        #else:
+        #    return self. attention_matrix
+
+
+### Attentive Sheaf Hypergraph Convolutional Layer using diagonal laplacian ###
+# One layer of attentive Sheaf Diffusion with diagonal Laplacian Y = (I-D^-1/2LD^-1) with L normalised with B^-1
+class AttentiveHyperDiffusionDiagSheafConv(MessagePassing):
+    r"""
+    
+    """
+    def __init__(self, in_channels, out_channels, d, device, dropout=0, bias=True, norm_type='degree_norm', 
+                left_proj=None, norm=None, residual = False,
+                 **kwargs):
+        kwargs.setdefault('aggr', 'add')
+        super().__init__(flow='source_to_target', node_dim=0, **kwargs)
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.d = d
+        self.norm_type = norm_type
+        self.left_proj = left_proj
+        self.norm = norm
+        self.residual = residual
+        
+
+        if self.left_proj:
+            self.lin_left_proj = MLP(in_channels=d, 
+                        hidden_channels=d,
+                        out_channels=d,
+                        num_layers=1,
+                        dropout=0.0,
+                        Normalization='ln',
+                        InputNorm=self.norm)
+                        
+           
+
+        self.lin = MLP(in_channels=in_channels, 
+                        hidden_channels=out_channels,
+                        out_channels=out_channels,
+                        num_layers=1,
+                        dropout=0.0,
+                        Normalization='ln',
+                        InputNorm=self.norm)
+        
+        self.attention_layer = AttentionLayer(f=in_channels, d=d)
+                        
+        
+        if bias:
+            self.bias = Parameter(torch.Tensor(out_channels))
+        else:
+            self.register_parameter('bias', None)
+
+        self.device = device
+
+        self.I_mask = None
+        self.Id = None
+
+        self.reset_parameters()
+
+    #to allow multiple runs reset all parameters used
+    def reset_parameters(self):
+        if self.left_proj:
+            self.lin_left_proj.reset_parameters()
+        self.lin.reset_parameters()
+
+        zeros(self.bias)
+
+    def forward(self, x: Tensor, hyperedge_index: Tensor,
+                alpha, 
+                num_nodes,
+                num_edges) -> Tensor:
+        r"""
+        Args:
+            x (Tensor): Node feature matrix {Nd x F}`.
+            hyperedge_index (LongTensor): The hyperedge indices, *i.e.*
+                the sparse incidence matrix Nd x Md} from nodes to edges.
+            alpha (Tensor, optional): restriction maps
+        """ 
+        if self.left_proj:
+            x = x.t().reshape(-1, self.d)
+            x = self.lin_left_proj(x)
+            x = x.reshape(-1,num_nodes * self.d).t()
+        x = self.lin(x)
+        data_x = x
+
+        #import pdb; pdb.set_trace()
+        attention_matrix = self.attention_layer.forward(self.device, num_nodes, x).to(self.device)
+        # Expand the attention matrix using the Kronecker product with a dxd matrix of ones (we could use the identity matrix instead)
+        ones_d = torch.ones((self.d, self.d)).to(self.device)
+        expanded_attention_matrix = torch.kron(attention_matrix, ones_d).to(self.device)
+
+
+
+        #depending on norm_type D^-1 or D^-1/2
+        D_inv, B_inv = normalisation_matrices(x, hyperedge_index, alpha, num_nodes, num_edges, self.d, self.norm_type)
+
+
+        if self.norm_type in ['sym_degree_norm', 'sym_block_norm']:
+            # compute D^(-1/2) @ X
+            x = D_inv.unsqueeze(-1) * x
+
+        #print('x', x.shape)
+        #print('alpha', alpha.shape) 
+        #print('hyperedge_index', hyperedge_index.shape)
+        H = torch.sparse.FloatTensor(hyperedge_index, alpha, size=(num_nodes*self.d, num_edges*self.d))
+        H_t = torch.sparse.FloatTensor(hyperedge_index.flip([0]), alpha, size=(num_edges*self.d, num_nodes*self.d))
+        #print('H', H.shape)
+
+        #this is because spdiags does not support gpu
+        B_inv =  utils.sparse_diagonal(B_inv, shape = (num_edges*self.d, num_edges*self.d))
+        D_inv = utils.sparse_diagonal(D_inv, shape = (num_nodes*self.d, num_nodes*self.d))
+
+        #handle repeated indices if any
+        B_inv = B_inv.coalesce()
+        H_t = H_t.coalesce()
+        H = H.coalesce()
+        D_inv = D_inv.coalesce()
+
+        minus_L = torch_sparse.spspmm(B_inv.indices(), B_inv.values(), H_t.indices(), H_t.values(), B_inv.shape[0],B_inv.shape[1], H_t.shape[1]) #ed x nd
+        minus_L = torch_sparse.spspmm(H.indices(), H.values(), minus_L[0], minus_L[1], H.shape[0],H.shape[1], H_t.shape[1]) #nd x nd
+        minus_L = torch_sparse.spspmm(D_inv.indices(), D_inv.values(), minus_L[0], minus_L[1], D_inv.shape[0],D_inv.shape[1], H_t.shape[1])
+        minus_L = torch.sparse_coo_tensor(minus_L[0], minus_L[1], size=(num_nodes*self.d, num_nodes*self.d)).to(self.device)
+
+        #Multiply attention Matrix here
+        # Move minus_L to the GPU
+        minus_L = minus_L.to(expanded_attention_matrix.device)
+        minus_L = minus_L * expanded_attention_matrix
+        #print('minus_L', minus_L.shape)
+
+        #negate the diagonal blocks and add eye matrix
+        if self.I_mask is None: #prepare these in advance
+            I_mask_indices = torch.stack([torch.arange(num_nodes), torch.arange(num_nodes)], dim=0)
+            I_mask_indices = utils.generate_indices_general(I_mask_indices, self.d)
+            I_mask_values = torch.ones((I_mask_indices.shape[1]))
+            self.I_mask = torch.sparse_coo_tensor(I_mask_indices, I_mask_values).to(self.device)
+            self.Id = utils.sparse_diagonal(torch.ones(num_nodes*self.d), shape = (num_nodes*self.d, num_nodes * self.d)).to(self.device)
+
+        minus_L = minus_L.coalesce()
+        #this help us changing the sign of the elements in the block diagonal
+        #with an efficient lower=memory mask 
+        minus_L = torch.sparse_coo_tensor(minus_L.indices(), minus_L.values(), minus_L.size())
+        minus_L = minus_L - 2 * minus_L.mul(self.I_mask)
+        minus_L = self.Id + minus_L
+
+        minus_L = minus_L.coalesce()
+        out = torch_sparse.spmm(minus_L.indices(), minus_L.values(), minus_L.shape[0], minus_L.shape[1], x)
+        if self.bias is not None:
+            out = out + self.bias
+        if self.residual:
+            out = out + data_x
+        return out

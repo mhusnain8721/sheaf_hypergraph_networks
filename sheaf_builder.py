@@ -69,13 +69,13 @@ def predict_blocks_var3(x, hyperedge_index, sheaf_lin, sheaf_lin2, args):
 def predict_blocks_cp_decomp(x, hyperedge_index, cp_W, cp_V, sheaf_lin, args):
     row, col = hyperedge_index
     #create a static integer variable to print things only once
-    if not hasattr(predict_blocks_cp_decomp, 'count'):  # Check if 'count' attribute exists
-        predict_blocks_cp_decomp.count = 0  # Initialize it if not
-    predict_blocks_cp_decomp.count += 1  # Increment the 'count' attribute
-    if(predict_blocks_cp_decomp.count <= 1):
-        print ("hyperedge index is:",hyperedge_index.shape)
-        print ("row shape is:",row.shape)
-        print ("col shape is: ",col.shape)
+    # if not hasattr(predict_blocks_cp_decomp, 'count'):  # Check if 'count' attribute exists
+    #     predict_blocks_cp_decomp.count = 0  # Initialize it if not
+    # predict_blocks_cp_decomp.count += 1  # Increment the 'count' attribute
+    # if(predict_blocks_cp_decomp.count <= 1):
+    #     print ("hyperedge index is:",hyperedge_index.shape)
+    #     print ("row shape is:",row.shape)
+    #     print ("col shape is: ",col.shape)
 
     xs = torch.index_select(x, dim=0, index=row)
 

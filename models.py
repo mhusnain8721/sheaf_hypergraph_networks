@@ -72,7 +72,8 @@ class SheafHyperGNN(nn.Module):
         # define the model and sheaf generator according to the type of sheaf wanted
         # The diuffusion does not change, however tha implementation for diag and ortho is more efficient
         if sheaf_type == 'SheafHyperGNNDiag':
-            ModelSheaf, ModelConv = SheafBuilderDiag, HyperDiffusionDiagSheafConv
+            #ModelSheaf, ModelConv = SheafBuilderDiag, HyperDiffusionDiagSheafConv
+            ModelSheaf, ModelConv = SheafBuilderDiag, AttentiveHyperDiffusionDiagSheafConv
         elif sheaf_type == 'SheafHyperGNNOrtho':
             ModelSheaf, ModelConv = SheafBuilderOrtho, HyperDiffusionOrthoSheafConv
         elif sheaf_type == 'SheafHyperGNNGeneral':
@@ -82,9 +83,13 @@ class SheafHyperGNN(nn.Module):
         
         self.convs = nn.ModuleList()
         # Sheaf Diffusion layers
+        #self.convs.append(ModelConv(self.MLP_hidden, self.MLP_hidden, d=self.d, device=self.device, 
+        #                               norm_type=self.norm_type, left_proj=self.left_proj, 
+        #                               norm=self.norm, residual=self.residual))
         self.convs.append(ModelConv(self.MLP_hidden, self.MLP_hidden, d=self.d, device=self.device, 
                                         norm_type=self.norm_type, left_proj=self.left_proj, 
                                         norm=self.norm, residual=self.residual))
+        
                                         
         # Model to generate the reduction maps
         self.sheaf_builder = nn.ModuleList()
@@ -92,6 +97,9 @@ class SheafHyperGNN(nn.Module):
 
         for _ in range(self.num_layers-1):
             # Sheaf Diffusion layers
+            # self.convs.append(ModelConv(self.MLP_hidden, self.MLP_hidden, d=self.d, device=self.device, 
+            #                             norm_type=self.norm_type, left_proj=self.left_proj, 
+            #                             norm=self.norm, residual=self.residual))
             self.convs.append(ModelConv(self.MLP_hidden, self.MLP_hidden, d=self.d, device=self.device, 
                                         norm_type=self.norm_type, left_proj=self.left_proj, 
                                         norm=self.norm, residual=self.residual))
@@ -136,7 +144,7 @@ class SheafHyperGNN(nn.Module):
         # expand the input N x num_features -> Nd x num_features such that we can apply the propagation
         x = self.lin(x)
         x = x.view((x.shape[0]*self.d, self.MLP_hidden)) # (N * d) x num_features
-
+        
         hyperedge_attr = self.lin(self.hyperedge_attr)
         hyperedge_attr = hyperedge_attr.view((hyperedge_attr.shape[0]*self.d, self.MLP_hidden))
 
@@ -1373,3 +1381,4 @@ class UniGCNII(nn.Module):
         x = self.dropout(x)
         x = self.convs[-1](x)
         return x
+    

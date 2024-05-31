@@ -381,6 +381,7 @@ if __name__ == '__main__':
         data = dataset.data
         args.num_features = dataset.num_features
         args.num_classes = dataset.num_classes
+        #import ipdb; ipdb.set_trace()
         if args.dname in ['house-committees', 
                             'house-committees-100', 'senate-committees', 'senate-committees-100', 'congress-bills', 'congress-bills-100',
                         ]:
