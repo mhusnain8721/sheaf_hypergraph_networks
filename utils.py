@@ -7,6 +7,30 @@ from torch.nn.parameter import Parameter
 import numpy as np
 import time
 
+import psutil
+import os
+import gc
+
+def get_memory_usage():
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    return mem_info.rss / (1024 ** 3)  # Convert bytes to GB
+
+# Function to delete an object and force garbage collection
+def delete_and_collect(obj):
+    del obj
+    gc.collect()
+
+
+# Function to flush RAM cache
+def flush_ram_cache():
+    # Sync the filesystem
+    os.system('sync')
+    # Clear pagecache, dentries, and inodes
+    os.system('sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"')
+
+# Example usage
+print(f"Memory usage: {get_memory_usage()} GB")
 
 
 class HyperGraphConvolution(Module):

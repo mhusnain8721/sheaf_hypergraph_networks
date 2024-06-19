@@ -83,7 +83,7 @@ class SheafHyperGNN(nn.Module):
         
         self.convs = nn.ModuleList()
         # Sheaf Diffusion layers
-        #self.convs.append(ModelConv(self.MLP_hidden, self.MLP_hidden, d=self.d, device=self.device, 
+        # self.convs.append(ModelConv(self.MLP_hidden, self.MLP_hidden, d=self.d, device=self.device, 
         #                               norm_type=self.norm_type, left_proj=self.left_proj, 
         #                               norm=self.norm, residual=self.residual))
         self.convs.append(ModelConv(self.MLP_hidden, self.MLP_hidden, d=self.d, device=self.device, 

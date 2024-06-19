@@ -29,7 +29,7 @@ from typing import Optional
 
 import utils
 import torch_sparse
-
+import gc
 # This part is for PMA.
 # Modified from GATConv in pyg.
 # Method for initialization
@@ -1114,7 +1114,7 @@ class AttentionLayer(nn.Module):
         Returns:
         torch.Tensor: NxN attention matrix.
         """
-
+        #return torch.randn((N, N))
         #  # Initialize attention matrix with random values and normalize
         # attention_matrix = torch.rand(N, N)
         # # Normalize the attention scores using softmax
@@ -1130,54 +1130,97 @@ class AttentionLayer(nn.Module):
         #print('N ', N)
         #import pdb; pdb.set_trace()
         # Reshape x to (N, d, f)
-        x = x.view(N, d, f).to(Cdevice)
+        x = x.view(N, d, f).to("cpu")
         self.W = self.W.to(Cdevice)
-        a= self.a
-        a= a.to(Cdevice)
+        W_cpu = self.W.to("cpu")
 
-        
+        self.a= self.a.to(Cdevice)
+
+        ################### Use loop to calculate attention ####################
         # Apply the weight matrix W to the features
-        Wx = torch.matmul(x, self.W).to(Cdevice) # Shape (N, d, f)
+        # Wx = torch.matmul(x, self.W).to(Cdevice) # Shape (N, d, f)
         
-        # Compute the attention scores
-        attention_scores = torch.zeros(N, N).to(Cdevice)
-        #import pdb; pdb.set_trace()
-        for i in range(N):
-            for j in range(N):
-                if i != j:
-                    with torch.no_grad():
-                        concatenated = torch.cat((Wx[i], Wx[j]), dim=-1).to(Cdevice) # Concatenate shape (dx2f) 
-                        #`print ('concatinated shape', concatenated.shape)
-                        # e_ij = []
-                        # for i in range(d):
-                        #     row = concatenated[i]  # This will be of shape (2F,)
-                        #     e_ij.append(F.leaky_relu(torch.dot(self.a, row))) # at the end e_ij will be shape shape (d,)
+        # # Compute the attention scores using for loops
+        # attention_scores = torch.zeros(N, N).to(Cdevice)
+        # #import pdb; pdb.set_trace()
+        # for i in range(N):
+        #     for j in range(N):
+        #         if i != j:
+        #             with torch.no_grad():
+        #                 concatenated = torch.cat((Wx[i], Wx[j]), dim=-1).to(Cdevice) # Concatenate shape (dx2f) 
+        #                 #`print ('concatinated shape', concatenated.shape)
+        #                 # e_ij = []
+        #                 # for i in range(d):
+        #                 #     row = concatenated[i]  # This will be of shape (2F,)
+        #                 #     e_ij.append(F.leaky_relu(torch.dot(self.a, row))) # at the end e_ij will be shape shape (d,)
 
-                        # Calculate e_ij using efficient tensor operations
-                        e_ij = F.leaky_relu(torch.einsum('df,f->d', concatenated, a))  # e_ij shape: (d,)
-                        # Sum over the d dimension and assign to the attention_scores tensor
-                        attention_scores[i, j] = e_ij.sum()
-                                    # Delete tensors to free up memory
-                        del concatenated
-                        del e_ij
-                        # Force garbage collection to deallocate memory
-                        torch.cuda.empty_cache()
+        #                 # Calculate e_ij using efficient tensor operations
+        #                 e_ij = F.leaky_relu(torch.einsum('df,f->d', concatenated, self.a))  # e_ij shape: (d,)
+        #                 # Sum over the d dimension and assign to the attention_scores tensor
+        #                 attention_scores[i, j] = e_ij.sum()
+        #                             # Delete tensors to free up memory
+        #                 del concatenated
+        #                 del e_ij
+        #                 # Force garbage collection to deallocate memory
+        #                 torch.cuda.empty_cache()
 
+
+        # # Normalize the attention scores using softmax
+        # #import pdb; pdb.set_trace()
+        # # Apply ReLU to ensure all values are non-negative
+        # attention_scores = F.relu(attention_scores)
+        # # Normalize each row by dividing by the row sum
+        # row_sums = attention_scores.sum(dim=1, keepdim=True)
+        # self.attention_matrix = attention_scores / row_sums
+        ###########################################################################
+
+        ############ Use pure Einsum Notations to calculate attention##############
+        #Apply the weight matrix W to the features and push to the device
+        with torch.no_grad():
+            Wx = torch.einsum('ndf,ff->ndf', x, W_cpu)
+
+            # Concatenate the projected features of each pair of nodes and compute the attention scores
+            #concatenated_features = torch.einsum('ndf,mdf->nm2df', Wx, Wx)
+            # Create the outer product for pairwise combinations and then concatenate
+            Wx_expanded_i = Wx.unsqueeze(1)  # Shape: (N, 1, d, f)
+            Wx_expanded_j = Wx.unsqueeze(0)  # Shape: (1, N, d, f)
+            concatenated_features = torch.cat([Wx_expanded_i.expand(-1, N, -1, -1), Wx_expanded_j.expand(N, -1, -1, -1)], dim=-1)  # Shape: (N, N, d, 2f)
             
-        # Normalize the attention scores using softmax
-        #import pdb; pdb.set_trace()
-        # Apply ReLU to ensure all values are non-negative
-        attention_scores = F.relu(attention_scores)
-        # Normalize each row by dividing by the row sum
-        row_sums = attention_scores.sum(dim=1, keepdim=True)
-        self.attention_matrix = attention_scores / row_sums
-        
-        #attention_matrix = F.softmax(attention_scores, dim=1)
-        #attention_matrix = torch.distributions.dirichlet.Dirichlet(torch.ones(N)).sample([N])
-        return self. attention_matrix
-        #else:
-        #    return self. attention_matrix
+            utils.delete_and_collect(Wx)
+            utils.flush_ram_cache()
+            utils.delete_and_collect(Wx_expanded_i)
+            utils.flush_ram_cache()
+            utils.delete_and_collect(Wx_expanded_j)     
+            utils.flush_ram_cache()
+            
+            #concatenated_features = concatenated_features.reshape(N, N, d, 2 * f).to(Cdevice)
+            #e_ij = F.leaky_relu(torch.einsum('nm2df,f->nmd', concatenated_features, self.a)).to(Cdevice)
+            # Compute attention scores using einsum
+            a_cpu = self.a.to("cpu")
+            e_ij = torch.einsum('nmdf,f->nmd', concatenated_features, a_cpu)
+            utils.get_memory_usage()
+            utils.delete_and_collect(concatenated_features)
+            utils.delete_and_collect(a_cpu)
+            utils.flush_ram_cache()
+            torch.cuda.empty_cache()
+            #import pdb; pdb.set_trace()
+            # Sum over the d dimension to get the final attention scores
+            attention_scores = F.leaky_relu(e_ij.sum(dim=-1).to(Cdevice))
+            
+            # Set diagonal elements to zero
+            #############################################333
+            #attention_scores.fill_diagonal_(0)
 
+            ################################################3
+            attention_scores= torch.exp(attention_scores)
+
+            # Normalize the attention scores using softmax
+            self.attention_matrix = F.softmax(attention_scores, dim=1)
+
+        #######################END EINSUM ATTENTION CODE###########################
+        
+        return self.attention_matrix
+        
 
 ### Attentive Sheaf Hypergraph Convolutional Layer using diagonal laplacian ###
 # One layer of attentive Sheaf Diffusion with diagonal Laplacian Y = (I-D^-1/2LD^-1) with L normalised with B^-1
@@ -1198,6 +1241,7 @@ class AttentiveHyperDiffusionDiagSheafConv(MessagePassing):
         self.left_proj = left_proj
         self.norm = norm
         self.residual = residual
+        self.attention_count=0
         
 
         if self.left_proj:
@@ -1259,6 +1303,9 @@ class AttentiveHyperDiffusionDiagSheafConv(MessagePassing):
             x = x.reshape(-1,num_nodes * self.d).t()
         x = self.lin(x)
         data_x = x
+
+        self.attention_count +=1
+        print(f"\rAttention Layer called: {self.attention_count}", end='', flush=True)
 
         #import pdb; pdb.set_trace()
         attention_matrix = self.attention_layer.forward(self.device, num_nodes, x).to(self.device)
